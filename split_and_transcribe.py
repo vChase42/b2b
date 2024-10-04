@@ -3,8 +3,13 @@ from pydub import AudioSegment
 from pathlib import Path
 from faster_whisper import WhisperModel
 import torch
+from dotenv import load_dotenv
+import os
+load_dotenv()
+hf_key = os.getenv('HF_KEY')
 
-pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token="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")
+
+pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
 whisper_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
 
 def diarize(diarization_pipeline, audio_file, output_folder, limit=1000):

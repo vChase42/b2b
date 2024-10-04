@@ -1,8 +1,13 @@
 # instantiate the pipeline
+from dotenv import load_dotenv
+import os
+load_dotenv()
+hf_key = os.getenv('HF_KEY')
+
 from pyannote.audio import Pipeline
 pipeline = Pipeline.from_pretrained(
   "pyannote/speaker-diarization-3.1",
-  use_auth_token="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")
+  use_auth_token=hf_key)
 
 # run the pipeline on an audio file
 print("start")

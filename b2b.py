@@ -1,4 +1,8 @@
+from dotenv import load_dotenv
 import os
+load_dotenv()
+hf_key = os.getenv('HF_KEY')
+
 import json
 import datetime
 import time
@@ -36,7 +40,7 @@ class TranscriptionProcessor:
         self.load_pre_prompt_from_file()
 
 
-        self.pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token="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")
+        self.pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
         self.model_large = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
         self.model_small = WhisperModel("small", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
 

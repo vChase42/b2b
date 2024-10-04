@@ -1,6 +1,11 @@
 from pyannote.audio import Pipeline
+from dotenv import load_dotenv
+import os
+load_dotenv()
+hf_key = os.getenv('HF_KEY')
 
-pipeline = Pipeline.from_pretrained("pyannote/speafsefker-segmentation",use_auth_token="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")
+
+pipeline = Pipeline.from_pretrained("pyannote/speafsefker-segmentation",use_auth_token=hf_key)
 
 audio_file = "./audio/2024-10-02-16-23-51.wav"
 

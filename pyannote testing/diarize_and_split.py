@@ -2,7 +2,13 @@ from pyannote.audio import Pipeline
 from pydub import AudioSegment
 from pathlib import Path
 
-pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token="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")
+from dotenv import load_dotenv
+import os
+load_dotenv()
+hf_key = os.getenv('HF_KEY')
+
+
+pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
 
 audio_file = "../audio/2024-10-02-16-23-51.wav"
 file_name = Path(audio_file).name
