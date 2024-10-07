@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import mplcursors
 
 # Read the CSV data
-small_data = pd.read_csv('output_data_small.csv')
+small_data = pd.read_csv('output_data_diarize.csv')
 large_data = pd.read_csv('output_data_large.csv')
 
 # Sort both datasets by the 'duration' column

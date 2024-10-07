@@ -39,14 +39,16 @@ class TranscriptionProcessor:
         # Load pre-prompt words
         self.load_pre_prompt_from_file()
 
-
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
+        self.pipeline.to(device)
         self.model_large = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
         self.model_small = WhisperModel("small", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
 
 
 
         self.audio_buffer = np.array([], dtype=np.float32)
+        self.current_buffer_start_time = None
         self.pre_prompt_words = []
 
         self.dialog_manager = DialogManager()
@@ -122,66 +124,65 @@ class TranscriptionProcessor:
 
         # Save audio to file
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")       
-        legible_time = datetime.datetime.now().strftime("%H:%M:%S")         #these are technically not the right time. right time is current time - audiofile_duration
-
         audio_file = f"./audio/{timestamp}.wav"
         os.makedirs('./audio', exist_ok=True)
         sf.write(audio_file, self.format_audio_stream(audio_to_process), sample_rate)
+        transcribed_text = ""
+        
+        
+        #split audio by speaker
         output_folder = "./audio_segments"
         os.makedirs(output_folder, exist_ok=True)
+        speakers, filenames, times = diarize(self.pipeline, audio_file, output_folder)
 
-        speakers, filenames = diarize(self.pipeline, audio_file, output_folder)
-        
-
-        if self.curr_row_start_time == None:
-            self.curr_row_start_time = legible_time  
-
-        new_text = ""
         try:
             for i, audio_file in enumerate(filenames):
-                initial_prompt = f"{' '.join(self.pre_prompt_words)} {self.transcribed_text[-500:]}"
+                initial_prompt = f"{' '.join(self.pre_prompt_words)}"   #need to bring add previously generated text here.
                 text = transcribe_audio(audio_file, model, initial_prompt)
 
-                new_text += text.strip() + " "
-                # if new_text == "":
-                #     new_text = f"[{speakers[i]}] {text}"
-                # else:
-                #     new_text += f"\n[{speakers[i]}] {text}"
+                transcribed_text += text.strip() + " "
+                #this text is separated by speaker/pauses. For now, just appending all text to eachother. Later, split by speaker
 
         except Exception as e:
             print(f"Error during transcription: {e}")
             print("FileName:",audio_file)
 
-        with self.lock:
-            if not clearBuffer:
 
-                #UPDATE TEXT
-                self.current_small_text = f"[{self.curr_row_start_time}]: {new_text}".strip()
-            else:
-                
-                #UPDATE TEXT
-                self.transcribed_text += f"[{self.curr_row_start_time}]-[{legible_time}]:{new_text}".strip() + "\n"
-                self.current_small_text = ""
-                self.curr_row_start_time = None
-                self.audio_buffer = np.array([], dtype=np.float32)
-                self.silence_duration = 0.0  # Reset silence duration
+        #add text to display
+        time = datetime.datetime.now()
+        if self.dialog_manager.find_by_time(time) is not None:
+            # print("editing existing blurb!")
+            self.dialog_manager.edit_by_time(time,text = transcribed_text)
+        else:
+            # print("adding new blurb!")
+            self.dialog_manager.add_blurb(transcribed_text, start_time=time)
+
+        if clearBuffer:
+            self.dialog_manager.edit_by_time(time,text = transcribed_text,end_time= time)
+            self.audio_buffer = np.array([], dtype=np.float32)
+            self.silence_duration = 0.0  # Reset silence duration
+
 
 
     # Main function to handle incoming audio chunks
-    def transcribe(self, sample_rate, y):
+    def transcribe(self, sr, y):
+        if(len(self.audio_buffer) == 0):    #more complex logic needed here to detect audio segmentation
+            if(len(y) == 0):
+                print("Your microphone is probably not working")
+                return
+            self.audio_buffer = y
+            soundbyte_seconds = len(y)/sr
+            self.current_buffer_start_time = datetime.datetime.now() - datetime.timedelta(seconds=soundbyte_seconds)
 
-        # with self.lock:
+        else: 
+            self.audio_buffer = np.concatenate([self.audio_buffer, y])
 
-        #     #This should be ran RIGHT at the beginning of the callback
-        #     silence_detected = False
-        #     # silence_detected = self.detect_silence(y, sample_rate)
-
-        buffer_duration = len(self.audio_buffer) / sample_rate
+        buffer_duration = len(self.audio_buffer) / sr
 
         if buffer_duration >= self.max_buffer_duration:
-            self.process_audio_buffer(self.model_large,sample_rate,True)
+            self.process_audio_buffer(self.model_large,sr,True)
         else:
-            self.process_audio_buffer(self.model_small,sample_rate,False)
+            self.process_audio_buffer(self.model_small,sr,False)
         
 
     # Helper functions for Gradio interface
@@ -215,15 +216,9 @@ def transcribe_and_update(sr_y):
     counter = counter + 1
     print("Begin",mine_counter)
 
-    sr, y = sr_y
-    if(len(processor.audio_buffer) == 0):    #more complex logic needed here to detect audio segmentation
-        processor.audio_buffer = y
-    else: 
-        processor.audio_buffer = np.concatenate([processor.audio_buffer, y])
 
 
-    
-    # executor.submit(processor.transcribe,sr,y)
+    sr,y = sr_y
     processor.transcribe(sr,y)
 
     print("End counter",mine_counter)

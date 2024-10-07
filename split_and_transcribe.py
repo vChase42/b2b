@@ -38,23 +38,26 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=1000):
             current_end_time = end_time
         else:
             if start_time - current_end_time > limit:
-                print(f"large silence here from {current_end_time} to {start_time}")
+                print(f"large silence here from {1.0*current_end_time/1000} to {1.0*start_time/1000}")
             current_end_time = end_time
 
     # Add the last segment after the loop
-    audio_segments.append((current_start_time, current_end_time))
-    speakers.append(current_speaker)
+    if current_start_time is not None:
+        audio_segments.append((current_start_time, current_end_time))
+        speakers.append(current_speaker)
 
     # Export the audio segments
     file_names = []
+    times = []
     for i, (start_time, end_time) in enumerate(audio_segments):
         speaker_audio_segment = audio[start_time:end_time]
         output_filename = f"{output_folder}/{file_name}_{speakers[i]}_part{i}.wav"
         speaker_audio_segment.export(output_filename, format="wav")
         print(f"Speaker {speakers[i]} spoke from {start_time/1000:.2f}s to {end_time/1000:.2f}s")
         file_names.append(output_filename)
+        times.append((start_time-end_time)/1000)
 
-    return speakers, file_names
+    return speakers, file_names, times
 
 
 def transcribe_audio(audio_path, model,pre_prompt):

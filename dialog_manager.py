@@ -6,7 +6,6 @@ class DialogManager:
         self.blurbs = []  # List to store text blurbs
         self.lock = Lock()  # Thread safety lock
     
-        self.latest_blurb = {}
 
     def add_blurb(self, text, speaker_name=None, start_time=None, end_time=None):
         if start_time is None:
@@ -21,15 +20,6 @@ class DialogManager:
 
         with self.lock:
             self.blurbs.append(blurb)
-        
-    def set_curr_blurb(self, text, speaker_name=None, start_time=None, end_time=None):
-        blurb = {
-            'text': text,
-            'speaker_name': speaker_name,
-            'start_time': start_time,
-            'end_time': end_time
-        }
-        self.latest_blurb = blurb
 
 
     def edit_blurb(self, index, text=None, speaker_name=None, start_time=None, end_time=None):
@@ -60,9 +50,11 @@ class DialogManager:
 
     def find_by_time(self, time):
         for index, blurb in enumerate(self.blurbs):
-            if blurb['start_time'] <= time and (blurb['end_time'] is None or blurb['end_time'] >= time):
+            latest_blurb_or_within_end = (blurb['end_time'] is None or blurb['end_time'] >= time)
+            if blurb['start_time'] <= time and latest_blurb_or_within_end: 
                 return index, blurb
-        return None, None
+                
+        return None
 
     def edit_by_time(self, time, text=None, speaker_name=None, start_time=None, end_time=None):
         index, blurb = self.find_by_time(time)
