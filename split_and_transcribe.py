@@ -55,7 +55,7 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=1000):
         speaker_audio_segment.export(output_filename, format="wav")
         print(f"Speaker {speakers[i]} spoke from {start_time/1000:.2f}s to {end_time/1000:.2f}s")
         file_names.append(output_filename)
-        times.append((start_time-end_time)/1000)
+        times.append((1.0*start_time/1000, 1.0*end_time/1000))
 
     return speakers, file_names, times
 

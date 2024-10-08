@@ -135,7 +135,7 @@ class TranscriptionProcessor:
         os.makedirs(output_folder, exist_ok=True)
         speakers, filenames, times = diarize(self.pipeline, audio_file, output_folder)
 
-        try:
+        try:   #it kinda bad to for loop this kind of thing :(
             for i, audio_file in enumerate(filenames):
                 initial_prompt = f"{' '.join(self.pre_prompt_words)}"   #need to bring add previously generated text here.
                 text = transcribe_audio(audio_file, model, initial_prompt)
@@ -161,7 +161,6 @@ class TranscriptionProcessor:
             self.dialog_manager.edit_by_time(time,text = transcribed_text,end_time= time)
             self.audio_buffer = np.array([], dtype=np.float32)
             self.silence_duration = 0.0  # Reset silence duration
-
 
 
     # Main function to handle incoming audio chunks
@@ -215,8 +214,6 @@ def transcribe_and_update(sr_y):
     mine_counter = counter
     counter = counter + 1
     print("Begin",mine_counter)
-
-
 
     sr,y = sr_y
     processor.transcribe(sr,y)
@@ -364,7 +361,7 @@ if __name__ == "__main__":
 #verify asynchronous function calling
 
 
-#swap to faster whisper
+#swap to faster whisper - check
 
 #figure out how to split audio chunks better.
 # - using audio clustering
@@ -375,7 +372,7 @@ if __name__ == "__main__":
 # - algorithms for sliding windows?
 
 
-# # - use pyannote for speaker transition detection... and potentially speaker diarization
+# # - use pyannote for speaker transition detection... and potentially speaker diarization  - check
 # from pyannote.audio import Pipeline
 # pipeline = Pipeline.from_pretrained("pyannote/speaker-change-detection")
 # audio_file = "./audio/file.wav"
@@ -394,4 +391,22 @@ if __name__ == "__main__":
 #i think ONLY the large transcription chunk should be done asynchronously. 
 #keep using small transcription on every piece of audio that comes through to keep up with the backlog
 
-#... i really need a specialized output formatter for real for real on god.
+#... i really need a specialized output formatter for real for real on god. - check
+
+
+#notes for resync
+#mel frequency ceptstrum is a no-go, it basically returns an eigenmatrix
+#pyannote has great diarization feature model. - but you need a key for it
+
+#current computing issue: if i diarize and chunk the audio by silence/speaker, then i must do multiple whisper transcription computations.
+#this is okay with small, but becomes noticeable with large (which triggeres every 10 seconds currently)
+#the more speakers there are, the more the audio gets chunked, which means more .5 second transcription times (with large-v3)
+
+#i removed concurrency, so i made it blocking again to make testing more easy, which caused the gaps to be more noticeable.
+#solution: keep small-transcriptions blocking and sequential, and make ONLY large-v3 computations threaded.
+
+#next feautures:
+#reset audio buffer as soon as new speaker or silence detected
+
+#diarization exists, but its not exactly like the model is keeping track of speakers between transcriptions
+#chatgpt solution, extract embeddings from pyannote and then cluster them manually? seems complicated but doable. 
