@@ -52,17 +52,26 @@ class DialogManager:
         for index, blurb in enumerate(self.blurbs):
             latest_blurb_or_within_end = (blurb['end_time'] is None or blurb['end_time'] >= time)
             if blurb['start_time'] <= time and latest_blurb_or_within_end: 
-                return index, blurb
+                return index
                 
         return None
 
     def edit_by_time(self, time, text=None, speaker_name=None, start_time=None, end_time=None):
-        index, blurb = self.find_by_time(time)
-        if blurb:
-            self.edit_blurb(index, text=text, speaker_name=speaker_name, start_time=start_time, end_time=end_time)
-        else:
+        index = self.find_by_time(time)
+        if index is None:
             print(f"No blurb found at time {time}")
+            return
 
+        self.edit_blurb(index, text=text, speaker_name=speaker_name, start_time=start_time, end_time=end_time)
+
+    def get_text_before_time(self,time):
+        index = self.find_by_time(time)
+        if index == None:
+            return ""
+        text = ""
+        for i in range(index):
+            text+= self.blurbs[i]['text'] + " "
+        return text
 
     def clear(self):
         self.blurbs = []
