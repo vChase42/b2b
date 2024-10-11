@@ -1,3 +1,4 @@
+import wave
 from pyannote.audio import Pipeline
 from pydub import AudioSegment
 from pathlib import Path
@@ -16,7 +17,10 @@ whisper_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_availabl
 #audio is split everytime there is a 3 seconds silence, or a transition between current speakers.
 def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
     diarization = diarization_pipeline(audio_file)
+    duration = get_wav_duration(audio_file)
     audio = AudioSegment.from_wav(audio_file)
+
+
 
     file_name = Path(audio_file).stem
 
@@ -59,6 +63,10 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
         file_names.append(output_filename)
         times.append((1.0*start_time/1000, 1.0*end_time/1000))
 
+        if start_time/1000 > 10:
+            print("File duration size:",duration,"- Why is are the seconds soooo long??")
+
+
     return speakers, file_names, times
 
 
@@ -66,6 +74,18 @@ def transcribe_audio(audio_path, model,pre_prompt):
     segments, info = model.transcribe(audio_path,initial_prompt = pre_prompt)
     text = " ".join([segment.text.strip() for segment in segments])   
     return text
+
+
+
+
+
+def get_wav_duration(file_name):
+    with wave.open(file_name, 'r') as wav_file:
+        # Extract parameters from the .wav file
+        frame_rate = wav_file.getframerate()  # Frames per second
+        n_frames = wav_file.getnframes()  # Total number of frames
+        duration = n_frames / float(frame_rate)  # Duration in seconds
+    return duration
 
 
 if __name__ == "__main__":

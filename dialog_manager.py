@@ -6,6 +6,11 @@ class DialogManager:
         self.blurbs = []  # List to store text blurbs
         self.lock = Lock()  # Thread safety lock
     
+    def sort_by_time(self):
+        with self.lock:
+            self.blurbs.sort(key=lambda blurb: blurb['start_time'])
+
+
 
     def add_blurb(self, text, speaker_name=None, start_time=None, end_time=None):
         if start_time is None:
@@ -37,6 +42,7 @@ class DialogManager:
         return self.blurbs[index]
 
     def to_string(self):
+        self.sort_by_time()
         output = []
         for blurb in self.blurbs:
             start_str = blurb['start_time'].strftime("[%H:%M:%S]")

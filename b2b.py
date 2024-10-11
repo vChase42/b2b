@@ -23,6 +23,10 @@ from pyannote.audio import Pipeline
 
 class TranscriptionProcessor:
     def __init__(self):
+        #folder locations
+        self.audio_folder = "audio"
+        self.audio_segments_folder = "audio_segments"
+
         # Initialize variables
         self.pre_prompt_file = 'pre-prompt.json'
         self.whisper_language = 'english'
@@ -49,6 +53,7 @@ class TranscriptionProcessor:
 
         self.audio_buffer = np.array([], dtype=np.float32)
         self.current_buffer_start_time = None
+        self.completing_last_row = False
         self.pre_prompt_words = []
 
         self.dialog_manager = DialogManager()
@@ -57,15 +62,6 @@ class TranscriptionProcessor:
         self.lock = Lock()
 
     # Load pre-prompt words from file
-    def load_pre_prompt_from_file(self):
-        if os.path.exists(self.pre_prompt_file):
-            with open(self.pre_prompt_file, 'r') as file:
-                self.pre_prompt_words = json.load(file)
-
-    # Save pre-prompt words to file
-    def save_pre_prompt_to_file(self):
-        with open(self.pre_prompt_file, 'w') as file:
-            json.dump(self.pre_prompt_words, file)
 
     # Function to detect silence using VAD
     # def detect_silence(self, audio_chunk, sr):
@@ -117,29 +113,26 @@ class TranscriptionProcessor:
     # Function to process audio buffer with the specified model
     def process_audio_buffer(self, sample_rate):
         buffer_start_time = self.current_buffer_start_time
-        with self.lock:
-            audio_to_process = self.audio_buffer.copy()
 
-        if len(audio_to_process) == 0:    #MAKE THIS BETTER
+        if len(self.audio_buffer) == 0:    #MAKE THIS BETTER
             return  # Nothing to process
 
         # Save audio to file
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")       
-        audio_file = f"./audio/{timestamp}.wav"
-        os.makedirs('./audio', exist_ok=True)
-        sf.write(audio_file, self.format_audio_stream(audio_to_process), sample_rate)
-        preprompt = f"{' '.join(self.pre_prompt_words)} {self.dialog_manager.get_text_before_time(datetime.datetime.now())}"
+        audio_file = f"./{self.audio_folder}/{timestamp}.wav"
+        os.makedirs(f'./{self.audio_folder}', exist_ok=True)
+        sf.write(audio_file, self.format_audio_stream(self.audio_buffer), sample_rate)
+        preprompt = f"{' '.join(self.pre_prompt_words)} {self.dialog_manager.get_text_before_time(datetime.datetime.now())[-500:]}"
         
         
         #split audio by speaker
-        output_folder = "./audio_segments"
+        output_folder = f"./{self.audio_segments_folder}"
         os.makedirs(output_folder, exist_ok=True)
         speakers, filenames, times = diarize(self.pipeline, audio_file, output_folder)
 
         startendtime = None
         speaker = None
         audio_part = None
-        finalizing_row = False
 
         if(len(times)) == 0:
             print("no speech found")
@@ -147,7 +140,13 @@ class TranscriptionProcessor:
 
 
         clear_buffer = len(self.audio_buffer) / sample_rate > self.max_buffer_duration
-        # print("TIMES RETURNED BY THE THING",times)
+        
+        #this try block handles some complexity.
+        #if one speaker is detected, process with small model and update text display.
+        #if MORE THAN ONE SPEAKER is detected, extract the very first speakers audio, process it with large.
+        #delete first speakers audio from audio_buffer, leaving the rest of the audio intact. Update current_buffer_start_time
+        #once an asynchronous large transcription task is submitted, function then uses small model to transcribe the NEXT speaker chunk.
+        #end function.
         try:
             if(len(times) > 1) or clear_buffer:
                 #do a large-model transcription, then clear buffer up to the start of the NEXT speech
@@ -159,29 +158,28 @@ class TranscriptionProcessor:
                 if clear_buffer:
                     self.audio_buffer = np.array([],dtype=np.float32)
                     return
-                
+
                 speech_start_timestamp_seconds, speech_end_timestamp_seconds = startendtime
                 speech_end_index = int(speech_end_timestamp_seconds * sample_rate)
-                self.audio_buffer = self.audio_buffer[speech_end_index:]
                 self.current_buffer_start_time = buffer_start_time + datetime.timedelta(seconds=speech_end_timestamp_seconds)
-                finalizing_row = True
+                self.audio_buffer = self.audio_buffer[speech_end_index:]
+                self.completing_last_row = True
 
-                print("snipping audio now")
-
-
+                #small model transcription
                 startendtime = times[1]
                 speaker = speakers[1]
                 audio_part = filenames[1]
                 text = transcribe_audio(audio_part, self.model_small, preprompt).strip()
 
             elif(len(times) == 1):
+                #small model transcription
                 startendtime = times[0]
                 speaker = speakers[0]
                 audio_part = filenames[0]
                 text = transcribe_audio(audio_part, self.model_small, preprompt).strip()
 
                 if(startendtime == None):
-                    print("wtf")
+                    print("critical error")
             else:
                 print("something has gone wrong, no data to transcribe!")
                 return
@@ -196,13 +194,13 @@ class TranscriptionProcessor:
         end = buffer_start_time + datetime.timedelta(seconds=end)
         middle = (end-start)/2 + start
 
+        print("SMALL:",text)
 
-
-        if self.dialog_manager.find_by_time(middle) is not None and finalizing_row is False:
-            print("so a blurb WAS found...")
+        #if blurb exists
+        if self.dialog_manager.find_by_time(middle) is not None and self.completing_last_row is False:
             self.dialog_manager.edit_by_time(middle,text = text, speaker_name=speaker)
         else:
-            print("adding blurb SMALL")
+            self.completing_last_row = False
             self.dialog_manager.add_blurb(text, start_time=start, speaker_name=speaker)
 
 
@@ -215,11 +213,12 @@ class TranscriptionProcessor:
         end = buffer_start_time + datetime.timedelta(seconds=end)
         middle = (end-start)/2 + start
 
+        print("LARGE:",text)
 
         if self.dialog_manager.find_by_time(middle) is not None:
             self.dialog_manager.edit_by_time(middle,text = text,start_time=start,end_time=end, speaker_name = speaker)
         else:
-            print("adding blurb LARGE")
+            # print("adding blurb LARGE")
             self.dialog_manager.add_blurb(text,start_time=start,end_time=end, speaker_name=speaker)
 
 
@@ -241,6 +240,17 @@ class TranscriptionProcessor:
 
         self.process_audio_buffer(sr)
         
+
+    #pre prompt management functions
+    def load_pre_prompt_from_file(self):
+        if os.path.exists(self.pre_prompt_file):
+            with open(self.pre_prompt_file, 'r') as file:
+                self.pre_prompt_words = json.load(file)
+
+    # Save pre-prompt words to file
+    def save_pre_prompt_to_file(self):
+        with open(self.pre_prompt_file, 'w') as file:
+            json.dump(self.pre_prompt_words, file)
 
     # Helper functions for Gradio interface
     def pre_prompt_words_display(self):
@@ -271,7 +281,7 @@ def transcribe_and_update(sr_y):
     global counter
     mine_counter = counter
     counter = counter + 1
-    print("Begin",mine_counter,"---------------------------")
+    print("Begin",mine_counter,"------------------------------------")
 
     sr,y = sr_y
     processor.transcribe(sr,y)
