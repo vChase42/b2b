@@ -30,6 +30,7 @@ class TranscriptionProcessor:
 
         #preprompt loc
         self.pre_prompt_file = 'pre-prompt.json'
+        self.load_pre_prompt_from_file()
 
 
         if not torch.cuda.is_available():
@@ -49,7 +50,6 @@ class TranscriptionProcessor:
         self.audio_buffer = np.array([], dtype=np.float32)
         self.buffer_duration = 0.0
         self.current_buffer_start_time = None
-        self.pre_prompt_words = []
         self.sample_rate = 0
 
         #lock
@@ -121,8 +121,10 @@ class TranscriptionProcessor:
         # Save audio to file
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")       
         audio_file = f"./{self.audio_folder}/{timestamp}.wav"
-        y = y.astype(np.float32)
-        y /= np.max(np.abs(y))
+        max_val = np.max(np.abs(y))
+        if max_val != 0:
+            y = y.astype(np.float32)
+            y /= max_val
         sf.write(audio_file, y, self.sample_rate)        
         
         return audio_file

@@ -172,3 +172,6 @@ if __name__ == "__main__":
 #implement better silence detection
 
 
+#implement better exception handling
+#logging
+#async vs executors?
