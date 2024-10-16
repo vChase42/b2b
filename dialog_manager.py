@@ -82,6 +82,12 @@ class DialogManager:
     def clear(self):
         self.blurbs = []
 
+    def finalize_latest_row(self, end_time):
+        if(len(self.blurbs) == 0):
+            print("No dialog exists yet")
+            return
+        self.blurbs[-1]['end_time'] = end_time
+
 # Example Usage
 if __name__ == "__main__":
     manager = DialogManager()

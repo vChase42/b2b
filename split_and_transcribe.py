@@ -20,8 +20,6 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
     duration = get_wav_duration(audio_file)
     audio = AudioSegment.from_wav(audio_file)
 
-
-
     file_name = Path(audio_file).stem
 
     audio_segments = []
@@ -30,6 +28,7 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
     current_end_time = None
     current_speaker = None
 
+    #aggregate the data
     for i, (segment, track_info) in enumerate(diarization._tracks.items()):
         start_time = segment.start * 1000
         end_time = segment.end * 1000
@@ -52,22 +51,26 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
         audio_segments.append((current_start_time, current_end_time))
         speakers.append(current_speaker)
 
-    # Export the audio segments
-    file_names = []
-    times = []
+    # prepare audio segments for export
+    tuples = []
     for i, (start_time, end_time) in enumerate(audio_segments):
         speaker_audio_segment = audio[start_time:end_time]
         output_filename = f"{output_folder}/{file_name}_{speakers[i]}_part{i}.wav"
         speaker_audio_segment.export(output_filename, format="wav")
         print(f"Speaker {speakers[i]} spoke from {start_time/1000:.2f}s to {end_time/1000:.2f}s")
-        file_names.append(output_filename)
-        times.append((1.0*start_time/1000, 1.0*end_time/1000))
+
+        tuples.append({
+            'speaker':speakers[i],
+            'audiofile':output_filename,
+            'start_seconds':1.0*start_time/1000,
+            'end_seconds':1.0*end_time/1000
+        })
 
         if start_time/1000 > 10:
             print("File duration size:",duration,"- Why is are the seconds soooo long??")
 
 
-    return speakers, file_names, times
+    return tuples
 
 
 def transcribe_audio(audio_path, model,pre_prompt):
