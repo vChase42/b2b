@@ -56,8 +56,9 @@ class DialogManager:
 
     def find_by_time(self, time):
         for index, blurb in enumerate(self.blurbs):
-            latest_blurb_or_within_end = (blurb['end_time'] is None or blurb['end_time'] >= time)
-            if blurb['start_time'] <= time and latest_blurb_or_within_end: 
+            latest_blurb = (blurb['end_time'] is None and index == len(self.blurbs)-1)
+            has_end = blurb['end_time'] is None
+            if latest_blurb or (blurb['start_time'] <= time and has_end and blurb['end_time'] >= time): 
                 return index
                 
         return None
@@ -82,11 +83,12 @@ class DialogManager:
     def clear(self):
         self.blurbs = []
 
-    def finalize_latest_row(self, end_time):
-        if(len(self.blurbs) == 0):
-            print("No dialog exists yet")
+    def finalize_latest_row(self, start_time, end_time):
+        if(self.blurbs[-1]['end_time'] == None):
+            self.blurbs[-1]['end_time'] = end_time
             return
-        self.blurbs[-1]['end_time'] = end_time
+        
+        self.add_blurb("",start_time=start_time,end_time=end_time)
 
 # Example Usage
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import mplcursors
 
 # Read the CSV data
 small_data = pd.read_csv('output_data_diarize.csv')
-large_data = pd.read_csv('output_data_large.csv')
+large_data = pd.read_csv('output_data_vad.csv')
 
 # Sort both datasets by the 'duration' column
 small_data = small_data.sort_values(by='duration')

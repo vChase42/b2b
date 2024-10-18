@@ -165,13 +165,17 @@ if __name__ == "__main__":
 #what should happen, is if there is noone speaking, the timer should continue ticking, and given enough silence, 
 #the whole buffer should just be transcribed and cleared
 
+#one way to balance this 'constant transcribing' would be to keep track of a running-average-processing-time. 
+#using this variable could help the program utilize pc resources without overwhelming them
+#OR, just have a main loop that processes the buffer, and as soon as its done processing, attempt to process the buffer again.
+#EITHER WAY, the program would need more thread safety, especially for audio_buffer and current_audio_buffer_start
 
 
 #diarization exists, but its not exactly like the model is keeping track of speakers between transcriptions
 #chatgpt solution, extract embeddings from pyannote and then cluster them manually? seems complicated but doable. 
+
+
 #implement better silence detection
-
-
 #implement better exception handling
 #logging
 #async vs executors?

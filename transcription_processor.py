@@ -18,6 +18,7 @@ from threading import Lock
 
 
 
+
 class TranscriptionProcessor:
 
     def __init__(self):
@@ -74,10 +75,11 @@ class TranscriptionProcessor:
         buffer_start_time = self.current_buffer_start_time
         preprompt = f"{' '.join(self.pre_prompt_words)} {self.dialog_manager.get_text_before_time(datetime.datetime.now())[-250:]}"
 
-        # if not speech_detected(audio_buffer):
-        #     audio_buffer = None
-        #     buffer_start = now
-        #     return
+        if not is_speech(self.audio_buffer):
+            print("silero VAD did not detect any speech")
+            self.audio_buffer = []
+            self.current_buffer_start_time = None
+            return
 
         if len(self.audio_buffer) == 0:
             print("No audio detected.")
@@ -88,11 +90,13 @@ class TranscriptionProcessor:
         diarized_dicts = diarize(self.pipeline, audio_file, self.audio_segments_folder, limit = 3000)
         if len(diarized_dicts) == 0:
             print("Diarization attempt failed, no speakers detected")
+            self.audio_buffer = []
+            self.current_buffer_start_time = None
             return
 
 
-        
-        done_speaking_flag = len(diarized_dicts) == 1 and 2 < self.buffer_duration - diarized_dicts[0]['end_seconds']  #if there is 2 seconds of silence after end_seconds, then true
+        #if there is 2 seconds of silence after end_seconds, then true
+        done_speaking_flag = len(diarized_dicts) == 1 and 2 < self.buffer_duration - diarized_dicts[0]['end_seconds']  
         if len(diarized_dicts) > 1 or done_speaking_flag:
             # print("popping! program thinks speaker is done speaking:",done_speaking_flag)
             # print(f"buffer duration is {self.buffer_duration}, and seconds timestamp last spoken is {diarized_dicts[0]['end_seconds']}")
@@ -101,11 +105,12 @@ class TranscriptionProcessor:
             #buffer management
             speech_end_index = int(diarized_info['end_seconds'] * self.sample_rate)
             self.audio_buffer = self.audio_buffer[speech_end_index:]
+            start_time = buffer_start_time + datetime.timedelta(seconds=diarized_info['start_seconds'])
             end_time = buffer_start_time + datetime.timedelta(seconds=diarized_info['end_seconds'])
             self.current_buffer_start_time = end_time
 
             #transcribe row LARGE
-            self.dialog_manager.finalize_latest_row(end_time)
+            self.dialog_manager.finalize_latest_row(start_time, end_time)  #what happens when we try to finalize a row that hasnt been even made yet
             self.executor.submit(self.transcribe_finalize, diarized_info, buffer_start_time, preprompt)
             
 
@@ -159,6 +164,8 @@ class TranscriptionProcessor:
         if os.path.exists(self.pre_prompt_file):
             with open(self.pre_prompt_file, 'r') as file:
                 self.pre_prompt_words = json.load(file)
+        else:
+            self.pre_prompt_words = []
 
     # Save pre-prompt words to file
     def save_pre_prompt_to_file(self):

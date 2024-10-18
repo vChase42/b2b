@@ -10,13 +10,12 @@ load_dotenv()
 hf_key = os.getenv('HF_KEY')
 
 
-pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
-whisper_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
 
 
 #audio is split everytime there is a 3 seconds silence, or a transition between current speakers.
 def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
     diarization = diarization_pipeline(audio_file)
+
     duration = get_wav_duration(audio_file)
     audio = AudioSegment.from_wav(audio_file)
 
@@ -45,11 +44,11 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
             if start_time - current_end_time > limit:
                 print(f"large silence here from {1.0*current_end_time/1000} to {1.0*start_time/1000}")
             current_end_time = end_time
-
     # Add the last segment after the loop
     if current_start_time is not None:
         audio_segments.append((current_start_time, current_end_time))
         speakers.append(current_speaker)
+
 
     # prepare audio segments for export
     tuples = []
@@ -92,6 +91,9 @@ def get_wav_duration(file_name):
 
 
 if __name__ == "__main__":
+    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
+    whisper_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
+
     audio_file_path = "../audio/2024-10-02-16-23-51.wav"
     
     speakers, segmented_files = diarize(pipeline, audio_file_path, '.')
