@@ -7,11 +7,85 @@ import torch
 from dotenv import load_dotenv
 import os
 import torchaudio
+import numpy as np
 load_dotenv()
 hf_key = os.getenv('HF_KEY')
 
 
+class DiarizationManager:
+    def __init__(self, pipeline):
+        #a set of audio chunks that contain unique voice signatures'
+        self.pipeline = pipeline
+        self.speaker_signatures = []
+        self.speaker_names = []
 
+    #THIS PROBLEM IS GETTING HARD.
+    #maybe the only signatures i should save should be high quality ones.
+
+    def diarize(self, audio_file, output_folder):
+        file_name = Path(audio_file).stem
+
+        combined_audio_segment = self._prepare_combined_audio(audio_file)
+        combined_audio_file = self._export_combined_audio(combined_audio_segment, output_folder, file_name)
+
+        total_signature_duration_ms = sum(len(signature) + 1000 for signature in self.speaker_signatures)
+        total_signature_duration = total_signature_duration_ms / 1000.0
+
+        # Perform diarization
+        diarization = self.pipeline(combined_audio_file)
+        pre_audio = AudioSegment.from_wav(audio_file)
+        tuples = []
+
+        for segment, _, speaker in diarization.itertracks(yield_label=True):
+            if segment.end <= total_signature_duration:
+                continue
+
+            adjusted_start = segment.start - total_signature_duration
+            adjusted_end = segment.end - total_signature_duration
+
+            adjusted_start_ms = max(adjusted_start * 1000, 0)
+            adjusted_end_ms = min(adjusted_end * 1000, len(pre_audio))
+
+            speaker_audio_segment = pre_audio[adjusted_start_ms:adjusted_end_ms]
+
+            output_filename = f"{output_folder}/{file_name}_{speaker}_part{int(segment.start)}.wav"
+            speaker_audio_segment.export(output_filename, format="wav")
+            print(f"Speaker {speaker} spoke from {adjusted_start:.2f}s to {adjusted_end:.2f}s")
+
+            if speaker not in self.speaker_names:
+                self.speaker_signatures.append(speaker_audio_segment)
+                self.speaker_names.append(speaker)
+
+            tuples.append({
+                'speaker': speaker,
+                'audiofile': output_filename,
+                'start_seconds': max(adjusted_start - 0.5, 0),
+                'end_seconds': min(adjusted_end + 0.5, len(pre_audio) / 1000.0)
+            })
+
+        return tuples
+
+    def _prepare_combined_audio(self, audio_file):
+        pre_audio = AudioSegment.from_wav(audio_file)
+        one_second_silence = AudioSegment.silent(duration=1000)
+        combined_audio_segment = AudioSegment.empty()
+
+        for signature in self.speaker_signatures:
+            combined_audio_segment += signature + one_second_silence
+
+        combined_audio_segment += pre_audio
+
+        return combined_audio_segment
+
+    def _export_combined_audio(self, combined_audio_segment, output_folder, file_name):
+        output_file_name = f"{file_name}_signatures.wav"
+        combined_audio_file = os.path.join(output_folder, output_file_name)
+        combined_audio_segment.export(combined_audio_file, format="wav")
+        return combined_audio_file
+
+    @staticmethod
+    def print_dict(tuple):
+        print(f"Speaker: {tuple['speaker']}, Start Time: {tuple['start_seconds']}, End Time: {tuple['end_seconds']}, File Name: {tuple['audiofile']}")
 
 #audio is split everytime there is a 3 seconds silence, or a transition between current speakers.
 def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):

@@ -3,7 +3,7 @@ import os
 load_dotenv()
 hf_key = os.getenv('HF_KEY')
 
-from model_utils import diarize, transcribe_audio, is_speech
+from model_utils import DiarizationManager, transcribe_audio, is_speech
 from dialog_manager import DialogManager
 from pyannote.audio import Pipeline
 
@@ -51,14 +51,17 @@ class TranscriptionProcessor:
         self.vad_model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad')
         (self.get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
 
-
-
         #internal state
+        self.diarization_manager = DiarizationManager(self.pipeline)
         self.dialog_manager = DialogManager()
         self.audio_buffer = np.array([], dtype=np.float32)
         self.buffer_duration = 0.0
         self.current_buffer_start_time = None
         self.sample_rate = 0
+        #debug info
+        self.transcribe_time_running_average_large = 0
+        self.transcribe_time_running_average_small = 0
+        self.transcribe_time_running_average_diarize = 0
 
         #lock
         self.executor = ThreadPoolExecutor(max_workers=1)
@@ -96,7 +99,11 @@ class TranscriptionProcessor:
             return
 
         #diarize
-        diarized_dicts = diarize(self.pipeline, audio_file, self.audio_segments_folder, limit = 3000)
+        start_time = time.time()
+        diarized_dicts = self.diarization_manager.diarize(audio_file, self.audio_segments_folder)
+        elapsed_time = time.time() - start_time
+        self.transcribe_time_running_average_diarize = self.running_average(self.transcribe_time_running_average_diarize, elapsed_time)
+
         if len(diarized_dicts) == 0:
             print("Diarization attempt failed, no speakers detected")
             self.audio_buffer = []
@@ -104,7 +111,7 @@ class TranscriptionProcessor:
             return
 
         #transcribe
-        #if there is 2 seconds of silence after end_seconds, then true
+        #if there is 1 seconds of silence after end_seconds, then true
         done_speaking_flag = len(diarized_dicts) == 1 and 1 < self.buffer_duration - diarized_dicts[0]['end_seconds']  
         if len(diarized_dicts) > 1 or done_speaking_flag:
             # print("popping! program thinks speaker is done speaking:",done_speaking_flag)
@@ -141,10 +148,17 @@ class TranscriptionProcessor:
         return audio_file
     
     def transcribe_update_text(self, diarize_dict, buffer_start_time, preprompt, model):
+        DiarizationManager.print_dict(diarize_dict)
         start_time = time.time()
         text = transcribe_audio(diarize_dict['audiofile'], model, preprompt)
         elapsed_time = time.time() - start_time
-        # print(elapsed_time)
+        
+        #record running average, debug info.
+        if(model == self.model_small):
+            self.transcribe_time_running_average_small = self.running_average(self.transcribe_time_running_average_small, elapsed_time)
+        else:
+            self.transcribe_time_running_average_large = self.running_average(self.transcribe_time_running_average_large, elapsed_time)
+
         text = text + f" ({elapsed_time})"
         self.update_text(diarize_dict,buffer_start_time,text)
 
@@ -163,6 +177,12 @@ class TranscriptionProcessor:
 
     def get_text(self):
         return self.dialog_manager.to_string()
+
+
+
+    def running_average(self,current_running_average, new_transcribe_time, alpha=0.125):
+        new_average = (1 - alpha) * current_running_average + alpha * new_transcribe_time
+        return new_average
 
 
 
@@ -196,4 +216,5 @@ class TranscriptionProcessor:
 
     def clear_text(self):
         self.dialog_manager.clear()
+
 

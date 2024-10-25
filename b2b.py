@@ -10,6 +10,10 @@ def transcribe_and_update(sr_y):
     if(sr_y is None): return
     global counter, processor
     print("Begin",counter,"------------------------------------")
+    print(f"avg sml time: {processor.transcribe_time_running_average_small}")
+    print(f"avg lrg time: {processor.transcribe_time_running_average_large}")
+    print(f"avg diarize time: {processor.transcribe_time_running_average_diarize}")
+
     counter = counter + 1
 
     sr,y = sr_y
