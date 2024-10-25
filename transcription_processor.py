@@ -3,7 +3,7 @@ import os
 load_dotenv()
 hf_key = os.getenv('HF_KEY')
 
-from split_and_transcribe import diarize, transcribe_audio
+from model_utils import diarize, transcribe_audio, is_speech
 from dialog_manager import DialogManager
 from pyannote.audio import Pipeline
 
@@ -15,7 +15,7 @@ import json
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-
+import time
 
 
 
@@ -40,11 +40,18 @@ class TranscriptionProcessor:
             print("-------------------------------")
 
         #models
+        #pyannote
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_key)
         self.pipeline.to(device)
+        #faster whisper
         self.model_large = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
         self.model_small = WhisperModel("small", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16")
+        #silero_vad
+        self.vad_model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad')
+        (self.get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+
+
 
         #internal state
         self.dialog_manager = DialogManager()
@@ -73,20 +80,22 @@ class TranscriptionProcessor:
 
     def main_processing_pipeline(self):
         buffer_start_time = self.current_buffer_start_time
-        preprompt = f"{' '.join(self.pre_prompt_words)} {self.dialog_manager.get_text_before_time(datetime.datetime.now())[-250:]}"
-
-        if not is_speech(self.audio_buffer):
-            print("silero VAD did not detect any speech")
-            self.audio_buffer = []
-            self.current_buffer_start_time = None
-            return
+        preprompt = f"{' '.join(self.pre_prompt_words)} {self.dialog_manager.get_text_before_time(self.current_buffer_start_time)[-250:]}"
 
         if len(self.audio_buffer) == 0:
             print("No audio detected.")
             return
 
         audio_file = self.save_wav_file(self.audio_buffer)
-        
+
+        #use VAD
+        if not is_speech(self.vad_model, self.get_speech_timestamps, audio_file):
+            print("silero VAD did not detect any speech")
+            self.audio_buffer = []
+            self.current_buffer_start_time = None
+            return
+
+        #diarize
         diarized_dicts = diarize(self.pipeline, audio_file, self.audio_segments_folder, limit = 3000)
         if len(diarized_dicts) == 0:
             print("Diarization attempt failed, no speakers detected")
@@ -94,9 +103,9 @@ class TranscriptionProcessor:
             self.current_buffer_start_time = None
             return
 
-
+        #transcribe
         #if there is 2 seconds of silence after end_seconds, then true
-        done_speaking_flag = len(diarized_dicts) == 1 and 2 < self.buffer_duration - diarized_dicts[0]['end_seconds']  
+        done_speaking_flag = len(diarized_dicts) == 1 and 1 < self.buffer_duration - diarized_dicts[0]['end_seconds']  
         if len(diarized_dicts) > 1 or done_speaking_flag:
             # print("popping! program thinks speaker is done speaking:",done_speaking_flag)
             # print(f"buffer duration is {self.buffer_duration}, and seconds timestamp last spoken is {diarized_dicts[0]['end_seconds']}")
@@ -111,15 +120,12 @@ class TranscriptionProcessor:
 
             #transcribe row LARGE
             self.dialog_manager.finalize_latest_row(start_time, end_time)  #what happens when we try to finalize a row that hasnt been even made yet
-            self.executor.submit(self.transcribe_finalize, diarized_info, buffer_start_time, preprompt)
+            self.executor.submit(self.transcribe_update_text, diarized_info, buffer_start_time, preprompt, self.model_large)
             
-
-
             if(len(diarized_dicts) == 0): return
 
-
-        text = transcribe_audio(diarized_dicts[0]['audiofile'], self.model_small, preprompt)
-        self.update_text(diarized_dicts[0],buffer_start_time,text)
+        #transcribe rest of buffer
+        self.transcribe_update_text(diarized_dicts[0], buffer_start_time, preprompt, self.model_small)
 
 
     def save_wav_file(self, y):
@@ -134,14 +140,15 @@ class TranscriptionProcessor:
         
         return audio_file
     
-    def transcribe_finalize(self, diarize_dict, buffer_start_time, preprompt):
-        text = transcribe_audio(diarize_dict['audiofile'], self.model_large, preprompt)
+    def transcribe_update_text(self, diarize_dict, buffer_start_time, preprompt, model):
+        start_time = time.time()
+        text = transcribe_audio(diarize_dict['audiofile'], model, preprompt)
+        elapsed_time = time.time() - start_time
+        # print(elapsed_time)
+        text = text + f" ({elapsed_time})"
         self.update_text(diarize_dict,buffer_start_time,text)
 
-
-
     def update_text(self,diarize_dict, buffer_start_time, text):
-        
         start = diarize_dict['start_seconds']
         end = diarize_dict['end_seconds']
         start = buffer_start_time + datetime.timedelta(seconds=start)

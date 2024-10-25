@@ -6,6 +6,7 @@ from faster_whisper import WhisperModel
 import torch
 from dotenv import load_dotenv
 import os
+import torchaudio
 load_dotenv()
 hf_key = os.getenv('HF_KEY')
 
@@ -16,7 +17,6 @@ hf_key = os.getenv('HF_KEY')
 def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
     diarization = diarization_pipeline(audio_file)
 
-    duration = get_wav_duration(audio_file)
     audio = AudioSegment.from_wav(audio_file)
 
     file_name = Path(audio_file).stem
@@ -35,7 +35,7 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
 
         if speaker != current_speaker or start_time - current_end_time > 1000:
             if current_speaker != None:
-                audio_segments.append((current_start_time, current_end_time))
+                audio_segments.append((max(current_start_time-500,0), min(current_end_time+500,len(audio))))
                 speakers.append(current_speaker)
             current_speaker = speaker
             current_start_time = start_time
@@ -65,8 +65,6 @@ def diarize(diarization_pipeline, audio_file, output_folder, limit=3000):
             'end_seconds':1.0*end_time/1000
         })
 
-        if start_time/1000 > 10:
-            print("File duration size:",duration,"- Why is are the seconds soooo long??")
 
 
     return tuples
@@ -78,16 +76,19 @@ def transcribe_audio(audio_path, model,pre_prompt):
     return text
 
 
+def is_speech(vad_model, get_speech_timestamps, audio_file):
+    waveform, sample_rate = torchaudio.load(audio_file)
+    if sample_rate != 16000:
+        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+        waveform = resampler(waveform)
+        sample_rate = 16000  # Ensure the sample rate is set to 16000 after resampling
+    
+    if len(waveform.shape) > 1:    # Convert stereo to mono if necessary
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
 
+    speech_timestamps = get_speech_timestamps(waveform, vad_model, sampling_rate=sample_rate)
+    return len(speech_timestamps) > 0  # True if any speech detected, False otherwise
 
-
-def get_wav_duration(file_name):
-    with wave.open(file_name, 'r') as wav_file:
-        # Extract parameters from the .wav file
-        frame_rate = wav_file.getframerate()  # Frames per second
-        n_frames = wav_file.getnframes()  # Total number of frames
-        duration = n_frames / float(frame_rate)  # Duration in seconds
-    return duration
 
 
 if __name__ == "__main__":

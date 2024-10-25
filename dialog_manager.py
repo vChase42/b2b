@@ -57,7 +57,7 @@ class DialogManager:
     def find_by_time(self, time):
         for index, blurb in enumerate(self.blurbs):
             latest_blurb = (blurb['end_time'] is None and index == len(self.blurbs)-1)
-            has_end = blurb['end_time'] is None
+            has_end = blurb['end_time'] is not None
             if latest_blurb or (blurb['start_time'] <= time and has_end and blurb['end_time'] >= time): 
                 return index
                 
