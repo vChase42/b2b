@@ -18,7 +18,8 @@ def transcribe_and_update(sr_y):
 
     sr,y = sr_y
     processor.update_audio_buffer(sr,y)
-    processor.main_processing_pipeline()
+    if counter % 4 == 0:
+        processor.main_processing_pipeline()     #make a pass through function
 
     # print("End counter",mine_counter)
     return processor.get_text()

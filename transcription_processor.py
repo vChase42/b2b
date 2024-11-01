@@ -113,6 +113,9 @@ class TranscriptionProcessor:
         #transcribe
         #if there is 1 seconds of silence after end_seconds, then true
         done_speaking_flag = len(diarized_dicts) == 1 and 1 < self.buffer_duration - diarized_dicts[0]['end_seconds']  
+        print("NUMBER OF AUDIO SEGMENTS:",len(diarized_dicts))
+        #metric for done-ness can be number of words transcribed so far. more than 5 words = good
+
         if len(diarized_dicts) > 1 or done_speaking_flag:
             # print("popping! program thinks speaker is done speaking:",done_speaking_flag)
             # print(f"buffer duration is {self.buffer_duration}, and seconds timestamp last spoken is {diarized_dicts[0]['end_seconds']}")
@@ -132,17 +135,17 @@ class TranscriptionProcessor:
             if(len(diarized_dicts) == 0): return
 
         #transcribe rest of buffer
-        self.transcribe_update_text(diarized_dicts[0], buffer_start_time, preprompt, self.model_small)
+        self.executor.submit(self.transcribe_update_text(diarized_dicts[0], buffer_start_time, preprompt, self.model_small))
 
 
     def save_wav_file(self, y):
         # Save audio to file
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")       
         audio_file = f"./{self.audio_folder}/{timestamp}.wav"
-        max_val = np.max(np.abs(y))
-        if max_val != 0:
-            y = y.astype(np.float32)
-            y /= max_val
+        # max_val = np.max(np.abs(y))
+        # if max_val != 0:
+        #     y = y.astype(np.float32)
+        #     y /= max_val
         sf.write(audio_file, y, self.sample_rate)        
         
         return audio_file
@@ -160,9 +163,9 @@ class TranscriptionProcessor:
             self.transcribe_time_running_average_large = self.running_average(self.transcribe_time_running_average_large, elapsed_time)
 
         text = text + f" ({elapsed_time})"
-        self.update_text(diarize_dict,buffer_start_time,text)
+        self.update_text(diarize_dict,buffer_start_time,text, speaker = diarize_dict['speaker'])
 
-    def update_text(self,diarize_dict, buffer_start_time, text):
+    def update_text(self,diarize_dict, buffer_start_time, text, speaker = None):
         start = diarize_dict['start_seconds']
         end = diarize_dict['end_seconds']
         start = buffer_start_time + datetime.timedelta(seconds=start)
@@ -171,9 +174,9 @@ class TranscriptionProcessor:
 
         #if blurb exists
         if self.dialog_manager.find_by_time(middle) is not None:
-            self.dialog_manager.edit_by_time(middle,text = text)
+            self.dialog_manager.edit_by_time(middle,text = text, speaker_name=speaker)
         else:
-            self.dialog_manager.add_blurb(text, start_time=start)
+            self.dialog_manager.add_blurb(text, start_time=start, speaker_name=speaker)
 
     def get_text(self):
         return self.dialog_manager.to_string()
